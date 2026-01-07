@@ -68,6 +68,24 @@ def list_jobs() -> schemas.JobList:
     return schemas.JobList(jobs=jobs)
 
 
+@router.post("/jobs/transcript", response_model=schemas.TranscriptJobResponse, status_code=status.HTTP_201_CREATED)
+def create_job_from_transcript(
+    transcript_input: schemas.TranscriptInput
+) -> schemas.TranscriptJobResponse:
+    """
+    Create a job from pre-transcribed dialogue, bypassing the STT service.
+    
+    This endpoint accepts structured dialogue data and pushes it directly 
+    to the summarization pipeline, skipping speech-to-text processing.
+    """
+    job = service.create_transcript_job(transcript_input)
+    return schemas.TranscriptJobResponse(
+        job_id=job.job_id,
+        status=str(job.status),
+        call_id=transcript_input.call_id
+    )
+
+
 # New database endpoints
 @router.get("/calls", response_model=list[CallListItemOut])
 async def list_calls_endpoint(
