@@ -1,0 +1,153 @@
+# Parlona Core - Community Edition (OSS) Docker Compose
+# Usage from repo root: docker compose -f oss/docker/docker-compose.yml up --build
+# Usage from oss/docker/: docker compose up --build
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-parlona_redis_secret} --protected-mode yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-parlonacore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-parlonacore_db_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-parlonacore}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - parlona_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-parlonacore} -d ${POSTGRES_DB:-parlonacore}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  call_analytics_api:
+    build:
+      context: ../..
+      dockerfile: oss/backend/call_analytics_api/Dockerfile
+    environment:
+      SERVICE_NAME: call_analytics_api
+      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
+      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
+      RUN_DB_MIGRATIONS: "1"
+      STORAGE_DIR: /app/storage
+      CALL_API_KEY: ${CALL_API_KEY:-changeme_api_key}
+    ports:
+      - "8080:8080"
+    volumes:
+      # Live sources for development
+      - ../backend:/app/backend
+      # Persistent runtime storage
+      - audio_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+  stt_service:
+    build:
+      context: ../..
+      dockerfile: oss/backend/stt_service/Dockerfile
+    environment:
+      SERVICE_NAME: stt_service
+      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
+      STORAGE_DIR: /app/storage
+      STT_DIARIZATION_MODE: "stereo_channels"
+      STT_STEREO_SPEAKER_MAPPING: "0:manager,1:customer"
+      # Force CPU mode for development
+      STT_ENABLE_GPU: "0"
+      FORCE_CPU: "1"
+      STT_MODEL_NAME: "Systran/faster-whisper-tiny"
+      WHISPER_MODEL_DIR: /models/whisper
+      WHISPER_LOCAL_ONLY: "0"
+      HF_HUB_OFFLINE: "0"
+    volumes:
+      # Live sources
+      - ../backend:/app/backend
+      # Shared persistent storage for audio + artifacts
+      - audio_storage:/app/storage
+      # Persistent model cache on host
+      - whisper_cache:/models/whisper
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  summary_service:
+    build:
+      context: ../..
+      dockerfile: oss/backend/summary_service/Dockerfile
+    environment:
+      SERVICE_NAME: summary_service
+      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    volumes:
+      # Live sources
+      - ../backend:/app/backend
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+  postprocess_service:
+    build:
+      context: ../..
+      dockerfile: oss/backend/postprocess_service/Dockerfile
+    environment:
+      SERVICE_NAME: postprocess_service
+      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
+      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
+      RUN_DB_MIGRATIONS: "1"
+      STORAGE_DIR: /app/storage
+    volumes:
+      # Live sources
+      - ../backend:/app/backend
+      # Persistent runtime storage
+      - audio_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+  audio_storage:
+  whisper_cache:
+
+networks:
+  parlona_network:
+    driver: bridge
