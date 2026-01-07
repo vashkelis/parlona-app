@@ -81,6 +81,7 @@ class LLMClient:
         logger.info("Detected language: %s", language)
         
         # Create a prompt that instructs the LLM to generate summary, headline, sentiment, and entities in JSON format
+        # IMPORTANT: Entities are separated by speaker role (agent vs customer) for proper attribution
         prompt = f"""
         Please analyze the following conversation and provide a summary, headline, sentiment analysis, and named entities.
         Respond in JSON format with the following fields: "summary", "headline", "sentiment_label", "sentiment_score", and "entities".
@@ -92,8 +93,13 @@ class LLMClient:
         4. For sentiment_label, choose one of: "positive", "negative", or "neutral"
         5. For sentiment_score, provide a value between 0.0 and 1.0 (0.0 = very negative, 1.0 = very positive)
         6. For entities, extract all important named entities such as person names, organizations, locations, dates, times, monetary values, etc.
-           Format entities as a dictionary where keys are entity types and values are lists of entity values.
-           Example: {{"PERSON": ["John Smith", "Mary Johnson"], "ORGANIZATION": ["ABC Company"], "LOCATION": ["New York"]}}
+           IMPORTANT: Separate entities by speaker role ("agent" and "customer"). This is critical for attribution.
+           Format entities as a dictionary with two keys: "agent" and "customer". 
+           Each should contain a dictionary of entity types and lists of values.
+           Example: {{
+             "agent": {{"PRODUCT": ["Internet 500"], "OFFER": ["10% discount"]}}, 
+             "customer": {{"PERSON": ["John Smith"], "LOCATION": ["New York"], "ORGANIZATION": ["Acme Corp"]}}
+           }}
         7. Focus on the key points, main topics, emotional tone, and important entities discussed
         
         Conversation:
@@ -106,9 +112,15 @@ class LLMClient:
             "sentiment_label": "positive|negative|neutral",
             "sentiment_score": 0.8,
             "entities": {{
-                "PERSON": ["John Smith"],
-                "ORGANIZATION": ["ABC Company"],
-                "LOCATION": ["New York"]
+                "agent": {{
+                    "PRODUCT": ["Fiber Optic"],
+                    "PERSON": ["Agent Sarah"]
+                }},
+                "customer": {{
+                    "PERSON": ["John Smith"],
+                    "ORGANIZATION": ["ABC Company"],
+                    "LOCATION": ["New York"]
+                }}
             }}
         }}
         """.strip()

@@ -239,11 +239,23 @@ class PostprocessWorker:
                             call_record.agent_fk = agent.id
 
                     # 2) Person / organization via identifiers (phone/email)
+                    # Support both speaker-separated and flat entity structures
                     entities = job.entities or {}
                     if not isinstance(entities, dict):
                         entities = {}
 
-                    identity_hints = entities.get("identity_hints") or {}
+                    # Extract identity hints from both agent and customer if they are structured
+                    # or from the flat structure if it's an old job
+                    agent_entities = entities.get("agent", {}) if "agent" in entities else {}
+                    customer_entities = entities.get("customer", {}) if "customer" in entities else {}
+                    
+                    # For backward compatibility, if entities is flat, treat it as general hints
+                    if not agent_entities and not customer_entities and entities:
+                        identity_hints = entities.get("identity_hints") or entities
+                    else:
+                        # Prioritize customer entities for identity resolution (customer-provided info)
+                        identity_hints = customer_entities
+                    
                     phones: list[str] = []
                     emails: list[str] = []
                     person_names: list[str] = []
@@ -362,9 +374,51 @@ class PostprocessWorker:
                         if not isinstance(entities_struct, dict):
                             entities_struct = {}
 
+                        # Prepare task/offer/product lists with speaker attribution
+                        # Support both new speaker-separated and legacy flat entity structures
+                        all_tasks = []
+                        all_offers = []
+                        all_products = []
+
+                        if "agent" in entities_struct or "customer" in entities_struct:
+                            # New speaker-separated entity structure
+                            # Process agent-mentioned items
+                            agent_data = entities_struct.get("agent", {})
+                            for t in agent_data.get("tasks", []):
+                                if isinstance(t, dict): 
+                                    t["mentioned_by"] = "agent"
+                                    all_tasks.append(t)
+                            for o in agent_data.get("offers", []):
+                                if isinstance(o, dict):
+                                    o["mentioned_by"] = "agent"
+                                    all_offers.append(o)
+                            for p in agent_data.get("products", []):
+                                if isinstance(p, dict):
+                                    p["mentioned_by"] = "agent"
+                                    all_products.append(p)
+
+                            # Process customer-mentioned items
+                            customer_data = entities_struct.get("customer", {})
+                            for t in customer_data.get("tasks", []):
+                                if isinstance(t, dict):
+                                    t["mentioned_by"] = "customer"
+                                    all_tasks.append(t)
+                            for o in customer_data.get("offers", []):
+                                if isinstance(o, dict):
+                                    o["mentioned_by"] = "customer"
+                                    all_offers.append(o)
+                            for p in customer_data.get("products", []):
+                                if isinstance(p, dict):
+                                    p["mentioned_by"] = "customer"
+                                    all_products.append(p)
+                        else:
+                            # Fallback to legacy flat structure for backward compatibility
+                            all_tasks = entities_struct.get("tasks") or []
+                            all_offers = entities_struct.get("offers") or []
+                            all_products = entities_struct.get("products") or []
+
                         # Process tasks
-                        task_items = entities_struct.get("tasks") or []
-                        for task_data in task_items:
+                        for task_data in all_tasks:
                             if not isinstance(task_data, dict):
                                 continue
 
@@ -382,7 +436,7 @@ class PostprocessWorker:
                                 extraction_id=extraction.id,
                                 call_id=call_record.id,
                                 fact_type="task",
-                                label=None,
+                                label=task_data.get("mentioned_by"),  # Store speaker attribution in label
                                 value=task_data,
                                 status="proposed",
                                 confidence=task_data.get("confidence", 0.8),
@@ -441,8 +495,7 @@ class PostprocessWorker:
                             fact.task_id = task_obj.id
 
                         # Process offers
-                        offer_items = entities_struct.get("offers") or []
-                        for offer_data in offer_items:
+                        for offer_data in all_offers:
                             if not isinstance(offer_data, dict):
                                 continue
 
@@ -459,7 +512,7 @@ class PostprocessWorker:
                                 extraction_id=extraction.id,
                                 call_id=call_record.id,
                                 fact_type="offer",
-                                label=None,
+                                label=offer_data.get("mentioned_by"),  # Store speaker attribution in label
                                 value=offer_data,
                                 status="proposed",
                                 confidence=offer_data.get("confidence", 0.8),
@@ -509,8 +562,7 @@ class PostprocessWorker:
                             fact.offer_id = offer_obj.id
 
                         # Process product mentions
-                        product_items = entities_struct.get("products") or []
-                        for product_data in product_items:
+                        for product_data in all_products:
                             if not isinstance(product_data, dict):
                                 continue
 
@@ -527,7 +579,7 @@ class PostprocessWorker:
                                 extraction_id=extraction.id,
                                 call_id=call_record.id,
                                 fact_type="product_mention",
-                                label=None,
+                                label=product_data.get("mentioned_by"),  # Store speaker attribution in label
                                 value=product_data,
                                 status="proposed",
                                 confidence=product_data.get("confidence", 0.8),

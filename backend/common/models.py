@@ -41,7 +41,7 @@ class JobMetadata(BaseModel):
     stt_error: Optional[str] = None
     sentiment_label: Optional[str] = None
     sentiment_score: Optional[float] = None
-    entities: Optional[dict[str, list[str]]] = None
+    entities: Optional[dict[str, Any]] = None  # Supports both flat format and speaker-separated format
 
 
 class QueueMessage(BaseModel):
