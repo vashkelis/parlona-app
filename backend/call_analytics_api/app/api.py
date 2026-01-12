@@ -18,6 +18,7 @@ from backend.call_analytics_api.app.schemas_business import (
 )
 from backend.call_analytics_api.app.auth import verify_api_key  # Import the auth dependency
 from backend.call_analytics_api.app.repos.calls import list_calls, get_call_details
+from backend.call_analytics_api.app.repos.analytics import AnalyticsRepository
 from backend.call_analytics_api.app.repos.customers import (
     list_customers,
     get_customer_details,
@@ -194,3 +195,127 @@ async def update_task_endpoint(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+# Analytics endpoints
+@router.get("/analytics/dashboard")
+async def get_analytics_dashboard(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get complete analytics dashboard data."""
+    # Get all analytics data in parallel
+    kpi_metrics = await AnalyticsRepository.get_kpi_metrics(db, days_back)
+    daily_volume = await AnalyticsRepository.get_daily_call_volume(db, days_back)
+    hourly_dist = await AnalyticsRepository.get_hourly_call_distribution(db, days_back)
+    sentiment_dist = await AnalyticsRepository.get_sentiment_distribution(db, days_back)
+    call_categories = await AnalyticsRepository.get_call_categories(db, days_back)
+    resolution_buckets = await AnalyticsRepository.get_resolution_time_buckets(db, days_back)
+    top_agents = await AnalyticsRepository.get_top_performing_agents(db, limit=10, days_back=days_back)
+    common_topics = await AnalyticsRepository.get_common_topics(db, days_back)
+    rating_dist = await AnalyticsRepository.get_customer_ratings_distribution(db, days_back)
+    operational_metrics = await AnalyticsRepository.get_operational_metrics(db, days_back)
+    
+    return {
+        "kpi_metrics": kpi_metrics,
+        "daily_call_volume": daily_volume,
+        "hourly_distribution": hourly_dist,
+        "sentiment_distribution": sentiment_dist,
+        "call_categories": call_categories,
+        "resolution_time_buckets": resolution_buckets,
+        "top_agents": top_agents,
+        "common_topics": common_topics,
+        "rating_distribution": rating_dist,
+        "operational_metrics": operational_metrics
+    }
+
+
+@router.get("/analytics/kpi")
+async def get_kpi_metrics(
+    days_back: int = Query(7, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get key performance indicators."""
+    return await AnalyticsRepository.get_kpi_metrics(db, days_back)
+
+
+@router.get("/analytics/call-volume")
+async def get_call_volume_trend(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get daily call volume trend data."""
+    return await AnalyticsRepository.get_daily_call_volume(db, days_back)
+
+
+@router.get("/analytics/hourly-distribution")
+async def get_hourly_distribution(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get hourly call distribution (peak hours)."""
+    return await AnalyticsRepository.get_hourly_call_distribution(db, days_back)
+
+
+@router.get("/analytics/sentiment")
+async def get_sentiment_analysis(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get sentiment distribution analysis."""
+    return await AnalyticsRepository.get_sentiment_distribution(db, days_back)
+
+
+@router.get("/analytics/categories")
+async def get_call_categories(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get call category/topic distribution."""
+    return await AnalyticsRepository.get_call_categories(db, days_back)
+
+
+@router.get("/analytics/resolution-time")
+async def get_resolution_time_buckets(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get call resolution time distribution buckets."""
+    return await AnalyticsRepository.get_resolution_time_buckets(db, days_back)
+
+
+@router.get("/analytics/top-agents")
+async def get_top_agents(
+    limit: int = Query(10, description="Number of top agents to return"),
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get top performing agents."""
+    return await AnalyticsRepository.get_top_performing_agents(db, limit, days_back)
+
+
+@router.get("/analytics/topics")
+async def get_common_topics(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get common call topics/categories."""
+    return await AnalyticsRepository.get_common_topics(db, days_back)
+
+
+@router.get("/analytics/ratings")
+async def get_customer_ratings(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get customer satisfaction ratings distribution."""
+    return await AnalyticsRepository.get_customer_ratings_distribution(db, days_back)
+
+
+@router.get("/analytics/operational")
+async def get_operational_metrics(
+    days_back: int = Query(30, description="Number of days to look back"),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get operational metrics (service level, occupancy, abandonment)."""
+    return await AnalyticsRepository.get_operational_metrics(db, days_back)
+

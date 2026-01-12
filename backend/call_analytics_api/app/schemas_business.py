@@ -255,3 +255,80 @@ class ExtractedFactOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ============ Analytics Schemas ============
+
+class KPIMetricsOut(BaseModel):
+    """Schema for KPI metrics response."""
+    total_calls: int
+    avg_duration_sec: float
+    avg_sentiment_score: float
+    resolution_rate: float
+    calls_trend: float
+    duration_trend: float
+    sentiment_trend: float
+
+
+class ChartDataPoint(BaseModel):
+    """Generic chart data point."""
+    label: str
+    count: int
+    color: Optional[str] = None
+
+
+class TimeSeriesDataPoint(BaseModel):
+    """Time series data point."""
+    date: str
+    count: int
+
+
+class HourlyDataPoint(BaseModel):
+    """Hourly distribution data point."""
+    hour: int
+    count: int
+
+
+class AgentPerformanceOut(BaseModel):
+    """Schema for agent performance data."""
+    agent_id: str
+    name: str
+    initials: str
+    total_calls: int
+    avg_sentiment: float
+    avg_duration: int
+    resolution_rate: float
+
+
+class TopicCountOut(BaseModel):
+    """Schema for topic/category counts."""
+    label: str
+    count: int
+
+
+class RatingDistributionOut(BaseModel):
+    """Schema for customer rating distribution."""
+    rating: int
+    count: int
+    percentage: float
+
+
+class OperationalMetricsOut(BaseModel):
+    """Schema for operational metrics."""
+    service_level: float
+    occupancy_rate: float
+    abandonment_rate: float
+
+
+class AnalyticsDashboardOut(BaseModel):
+    """Complete analytics dashboard response."""
+    kpi_metrics: KPIMetricsOut
+    daily_call_volume: List[TimeSeriesDataPoint]
+    hourly_distribution: List[HourlyDataPoint]
+    sentiment_distribution: List[ChartDataPoint]
+    call_categories: List[ChartDataPoint]
+    resolution_time_buckets: List[ChartDataPoint]
+    top_agents: List[AgentPerformanceOut]
+    common_topics: List[TopicCountOut]
+    rating_distribution: List[RatingDistributionOut]
+    operational_metrics: OperationalMetricsOut
+
