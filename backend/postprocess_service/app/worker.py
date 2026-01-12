@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import signal
 import time
 from datetime import datetime
@@ -22,6 +23,8 @@ from backend.common.models_db import (
     Person,
     Organization,
     Identifier,
+    Address,
+    EntityAddress,
     Extraction,
     ExtractedFact,
     Task,
@@ -163,6 +166,59 @@ class PostprocessWorker:
         """Normalize email for identifier matching."""
         return normalize_email(raw)
 
+    def _parse_russian_address(self, raw: str | list[str]) -> dict:
+        """
+        Parses a Russian address string or list of components into a structured dict.
+        Example: "город Санкт-Петербург, Невский проспект, дом 100, квартира 35, индекс 191123"
+        Returns: {city, line1, postal_code, country}
+        """
+        if isinstance(raw, list):
+            # If it's a list, join and re-parse to handle arbitrary segmentation
+            raw = ", ".join(str(item) for item in raw if item)
+        
+        raw_clean = str(raw).strip()
+        result = {
+            "city": None,
+            "line1": raw_clean,
+            "postal_code": None,
+            "country": "Russia"
+        }
+        
+        # 1. Extract postal code (6 digits)
+        postal_match = re.search(r'(?:индекс\s*)?(\d{6})', raw_clean, re.IGNORECASE)
+        if postal_match:
+            result["postal_code"] = postal_match.group(1)
+            # Remove from string
+            raw_clean = raw_clean.replace(postal_match.group(0), "").strip(" ,")
+            
+        # 2. Extract city
+        # Prefix patterns: г., город, пос., поселок, дер., деревня, с., село
+        # We look for the prefix and then the next word(s) until a comma or end of string
+        city_prefix_pattern = r'(?:^|[,\s])(?:г\.|город|пос\.|поселок|дер\.|деревня|с\.|село)\s+([А-Яа-яA-Za-z\s-]+?)(?:,|$)'
+        city_match = re.search(city_prefix_pattern, raw_clean, re.IGNORECASE)
+        
+        if city_match:
+            result["city"] = city_match.group(1).strip()
+            # Remove from string
+            raw_clean = raw_clean.replace(city_match.group(0), "").strip(" ,")
+        else:
+            # Fallback: Look for known major cities if no prefix
+            known_cities = ["Санкт-Петербург", "Москва", "Новосибирск", "Екатеринбург", "Казань", "Нижний Новгород"]
+            for city in known_cities:
+                if city.lower() in raw_clean.lower():
+                    result["city"] = city
+                    # Remove from string safely
+                    raw_clean = re.sub(rf'(?:^|[,\s]){re.escape(city)}(?:[,\s]|$)', ', ', raw_clean, flags=re.IGNORECASE).strip(" ,")
+                    break
+        
+        # 3. Clean up the rest as line1
+        # Remove multiple spaces/commas that might have been left behind
+        raw_clean = re.sub(r',\s*,', ',', raw_clean)
+        raw_clean = re.sub(r'\s+', ' ', raw_clean).strip(" ,")
+        
+        result["line1"] = raw_clean
+        return result
+
     def _persist_to_database(self, job: JobMetadata) -> None:
         """Persist job data to PostgreSQL database with identity resolution and entity promotion."""
         try:
@@ -272,20 +328,36 @@ class PostprocessWorker:
 
                     if customer_number:
                         phones.append(customer_number)
+                    def _ensure_list(val):
+                        if val is None: return []
+                        if isinstance(val, list): return val
+                        return [val]
+
                     if isinstance(identity_hints, dict):
                         # Legacy structured hints (if present)
-                        phones.extend(identity_hints.get("phones") or [])
-                        emails.extend(identity_hints.get("emails") or [])
-                        person_names.extend(identity_hints.get("person_names") or [])
-                        company_names.extend(identity_hints.get("company_names") or [])
+                        phones.extend(_ensure_list(identity_hints.get("phones")))
+                        emails.extend(_ensure_list(identity_hints.get("emails")))
+                        person_names.extend(_ensure_list(identity_hints.get("person_names")))
+                        company_names.extend(_ensure_list(identity_hints.get("company_names")))
 
                         # New NER-style buckets from the LLM:
                         #   PERSON        → customer name(s)
                         #   EMAIL         → customer email(s)
                         #   ORGANIZATION  → company name(s)
-                        person_names.extend(identity_hints.get("PERSON") or [])
-                        emails.extend(identity_hints.get("EMAIL") or [])
-                        company_names.extend(identity_hints.get("ORGANIZATION") or [])
+                        person_names.extend(_ensure_list(identity_hints.get("PERSON")))
+                        emails.extend(_ensure_list(identity_hints.get("EMAIL")))
+                        company_names.extend(_ensure_list(identity_hints.get("ORGANIZATION")))
+                        
+                        # Handle Russian labels and alternative keys
+                        if identity_hints.get("ФИО"): person_names.extend(_ensure_list(identity_hints.get("ФИО")))
+                        if identity_hints.get("ИМЯ"): person_names.extend(_ensure_list(identity_hints.get("ИМЯ")))
+                        if identity_hints.get("КОМПАНИЯ"): company_names.extend(_ensure_list(identity_hints.get("КОМПАНИЯ")))
+                        if identity_hints.get("АДРЕС"): identity_hints["address"] = identity_hints.get("АДРЕС")
+                        if identity_hints.get("LOCATION"): identity_hints["address"] = identity_hints.get("LOCATION")
+                        if identity_hints.get("PASSPORT"): identity_hints["id_number"] = identity_hints.get("PASSPORT")
+                        if identity_hints.get("ПАСПОРТ"): identity_hints["id_number"] = identity_hints.get("ПАСПОРТ")
+                        if identity_hints.get("DATE_OF_BIRTH"): identity_hints["date_of_birth"] = identity_hints.get("DATE_OF_BIRTH")
+                        if identity_hints.get("ДАТА_РОЖДЕНИЯ"): identity_hints["date_of_birth"] = identity_hints.get("ДАТА_РОЖДЕНИЯ")
 
                     normalized_phones = [
                         self._normalize_phone(p) for p in phones if self._normalize_phone(p)
@@ -304,6 +376,99 @@ class PostprocessWorker:
 
                     if person:
                         call_record.person_id = person.id
+                        
+                        # Update person with extra PII from identity_hints
+                        if isinstance(identity_hints, dict):
+                            # Update DoB if provided
+                            dob_raw = identity_hints.get("date_of_birth")
+                            if dob_raw and not person.date_of_birth:
+                                try:
+                                    if isinstance(dob_raw, str):
+                                        # Try ISO format first
+                                        try:
+                                            person.date_of_birth = datetime.fromisoformat(dob_raw.replace('Z', '+00:00'))
+                                        except ValueError:
+                                            # Try Russian date parsing (very basic)
+                                            # "15 августа 1985 года" or "15.08.1985"
+                                            months_ru = {
+                                                'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4,
+                                                'мая': 5, 'июня': 6, 'июля': 7, 'августа': 8,
+                                                'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12
+                                            }
+                                            parts = dob_raw.lower().split()
+                                            if len(parts) >= 3:
+                                                day = int(parts[0])
+                                                month = months_ru.get(parts[1])
+                                                year = int(parts[2].strip('года').strip(','))
+                                                if month:
+                                                    person.date_of_birth = datetime(year, month, day)
+                                                else:
+                                                    logger.warning("Unknown Russian month in dob: %s", parts[1])
+                                            else:
+                                                # Try DD.MM.YYYY
+                                                if '.' in dob_raw:
+                                                    d, m, y = map(int, dob_raw.split('.')[:3])
+                                                    person.date_of_birth = datetime(y, m, d)
+                                except (ValueError, TypeError, IndexError) as e:
+                                    logger.warning("Failed to parse date_of_birth '%s': %s", dob_raw, e)
+                            
+                            # Update ID number if provided
+                            id_number = identity_hints.get("id_number")
+                            if id_number and not person.id_number:
+                                if isinstance(id_number, list) and len(id_number) > 0:
+                                    person.id_number = str(id_number[0])
+                                else:
+                                    person.id_number = str(id_number)
+                            
+                            # Update Address if provided
+                            address_info = identity_hints.get("address")
+                            if address_info:
+                                # Use sophisticated parser for Russian addresses
+                                parsed = self._parse_russian_address(address_info)
+                                
+                                address_data = {
+                                    "line1": parsed.get("line1"),
+                                    "city": parsed.get("city"),
+                                    "postal_code": parsed.get("postal_code"),
+                                    "country": parsed.get("country", "Russia"),
+                                    "type": "home"
+                                }
+                                
+                                # If it was already a dict, merge existing fields
+                                if isinstance(address_info, dict):
+                                    for k in ["line1", "city", "state", "postal_code", "country", "type"]:
+                                        if address_info.get(k):
+                                            address_data[k] = address_info.get(k)
+
+                                if address_data.get("line1"):
+                                    # Check if address already exists for this person
+                                    addr_stmt = select(Address).join(EntityAddress).where(
+                                        EntityAddress.person_id == person.id,
+                                        Address.line1 == address_data.get("line1")
+                                    )
+                                    addr_result = await session.execute(addr_stmt)
+                                    existing_addr = addr_result.scalar_one_or_none()
+                                    
+                                    if not existing_addr:
+                                        new_addr = Address(
+                                            line1=address_data.get("line1"),
+                                            line2=address_data.get("line2"),
+                                            city=address_data.get("city"),
+                                            state=address_data.get("state"),
+                                            postal_code=address_data.get("postal_code"),
+                                            country=address_data.get("country"),
+                                        )
+                                        session.add(new_addr)
+                                        await session.flush()
+                                        
+                                        entity_addr = EntityAddress(
+                                            address_id=new_addr.id,
+                                            person_id=person.id,
+                                            address_type=address_data.get("type", "home"),
+                                            is_primary=True
+                                        )
+                                        session.add(entity_addr)
+
                     if organization:
                         call_record.organization_id = organization.id
 

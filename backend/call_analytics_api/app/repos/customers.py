@@ -5,11 +5,12 @@ from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.common.models_db import Person, Identifier, Organization, Call, Task
+from backend.common.models_db import Person, Identifier, Organization, Call, Task, Address, EntityAddress
 from backend.call_analytics_api.app.schemas_business import (
     PersonListItemOut,
     PersonDetailsOut,
     IdentifierOut,
+    AddressOut,
 )
 
 
@@ -111,6 +112,31 @@ async def get_customer_details(
     identifiers = identifiers_result.scalars().all()
     identifiers_out = [IdentifierOut.model_validate(i) for i in identifiers]
     
+    # Get all addresses
+    addresses_result = await db.execute(
+        select(Address, EntityAddress.address_type, EntityAddress.is_primary)
+        .join(EntityAddress, EntityAddress.address_id == Address.id)
+        .where(EntityAddress.person_id == person_id)
+        .order_by(EntityAddress.is_primary.desc(), Address.created_at)
+    )
+    
+    addresses_out = []
+    for addr, addr_type, is_primary in addresses_result:
+        addr_out = AddressOut(
+            id=addr.id,
+            line1=addr.line1,
+            line2=addr.line2,
+            city=addr.city,
+            state=addr.state,
+            postal_code=addr.postal_code,
+            country=addr.country,
+            address_type=addr_type,
+            is_primary=is_primary,
+            created_at=addr.created_at,
+            updated_at=addr.updated_at
+        )
+        addresses_out.append(addr_out)
+
     # Get primary phone/email
     primary_phone = next(
         (i.identifier_value for i in identifiers if i.identifier_type == "phone"),
@@ -178,9 +204,12 @@ async def get_customer_details(
         given_name=person.given_name,
         family_name=person.family_name,
         display_label=display_label,
+        date_of_birth=person.date_of_birth,
+        id_number=person.id_number,
         identifiers=identifiers_out,
         primary_phone=primary_phone,
         primary_email=primary_email,
+        addresses=addresses_out,
         organization_name=organization.name if organization else None,
         organization_id=organization.id if organization else None,
         call_count=call_count,

@@ -21,6 +21,7 @@ from backend.call_analytics_api.app.schemas_db import (
     CallDetailsOut,
     DialogueTurnOut,
     CallSummaryOut,
+    CallListResponse,
 )
 from backend.call_analytics_api.app.schemas_business import (
     PersonSummaryOut,
@@ -41,8 +42,9 @@ async def list_calls(
     direction: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
-) -> List[CallListItemOut]:
+) -> CallListResponse:
     """List calls with optional filtering - optimized for dashboard queries."""
+    # Base query for items
     query = (
         select(Call)
         .options(
@@ -53,19 +55,28 @@ async def list_calls(
         .order_by(desc(Call.created_at))
     )
     
+    # Base query for count
+    count_query = select(func.count()).select_from(Call)
+    
     if agent_id:
         query = query.where(Call.agent_id == agent_id)
+        count_query = count_query.where(Call.agent_id == agent_id)
     
     if direction:
         query = query.where(Call.direction == direction)
+        count_query = count_query.where(Call.direction == direction)
     
+    # Execute count
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar() or 0
+    
+    # Execute items
     query = query.limit(limit).offset(offset)
-    
     result = await db.execute(query)
     calls = result.scalars().all()
     
     # Convert to Pydantic models with identity and counts
-    output = []
+    items = []
     for call in calls:
         # Build caller identity summary
         caller_identity = None
@@ -94,7 +105,7 @@ async def list_calls(
         # Count offers
         offers_count = len(call.offers)
         
-        output.append(CallListItemOut(
+        items.append(CallListItemOut(
             id=call.id,
             external_job_id=call.external_job_id,
             provider_call_id=call.provider_call_id,
@@ -114,7 +125,7 @@ async def list_calls(
             created_at=call.created_at,
         ))
     
-    return output
+    return CallListResponse(items=items, total_count=total_count)
 
 
 async def get_call_details(db: AsyncSession, call_id: int) -> Optional[CallDetailsOut]:

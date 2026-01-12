@@ -19,6 +19,26 @@ class IdentifierOut(BaseModel):
         from_attributes = True
 
 
+# ============ Address Schemas ============
+
+class AddressOut(BaseModel):
+    """Schema for address output."""
+    id: int
+    line1: str
+    line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+    address_type: Optional[str] = None
+    is_primary: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ============ Person/Customer Schemas ============
 
 class PersonSummaryOut(BaseModel):
@@ -54,11 +74,16 @@ class PersonDetailsOut(BaseModel):
     given_name: Optional[str] = None
     family_name: Optional[str] = None
     display_label: str
+    date_of_birth: Optional[datetime] = None
+    id_number: Optional[str] = None
     
     # Identifiers
     identifiers: List[IdentifierOut] = []
     primary_phone: Optional[str] = None
     primary_email: Optional[str] = None
+    
+    # Addresses
+    addresses: List[AddressOut] = []
     
     # Associated organization (if any)
     organization_name: Optional[str] = None

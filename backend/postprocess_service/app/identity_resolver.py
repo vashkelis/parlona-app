@@ -62,6 +62,12 @@ async def resolve_or_create_person_org(
             person = ident.person
             organization = ident.organization
             logger.info("Resolved person/org by phone: %s", phone)
+            
+            # Update person name if currently missing and we have a hint
+            if person and not person.full_name and person_names:
+                person.full_name = person_names[0]
+                logger.info("Updated resolved person name: %s", person.full_name)
+            
             break
 
     # Fall back to email
@@ -80,6 +86,12 @@ async def resolve_or_create_person_org(
                 person = ident.person
                 organization = ident.organization
                 logger.info("Resolved person/org by email: %s", email)
+                
+                # Update person name if currently missing and we have a hint
+                if person and not person.full_name and person_names:
+                    person.full_name = person_names[0]
+                    logger.info("Updated resolved person name: %s", person.full_name)
+                
                 break
 
     # If still unresolved, create new person (and optional org)

@@ -237,6 +237,8 @@ class Person(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     given_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     family_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    date_of_birth: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    id_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default=func.now()
     )
@@ -247,6 +249,12 @@ class Person(Base):
     calls: Mapped[List["Call"]] = relationship(
         "Call",
         back_populates="person",
+        lazy="selectin",
+    )
+    addresses: Mapped[List["EntityAddress"]] = relationship(
+        "EntityAddress",
+        back_populates="person",
+        cascade="all, delete-orphan",
         lazy="selectin",
     )
 
@@ -354,7 +362,7 @@ class EntityAddress(Base):
     )
 
     address: Mapped["Address"] = relationship("Address", lazy="selectin")
-    person: Mapped[Optional["Person"]] = relationship("Person", lazy="selectin")
+    person: Mapped[Optional["Person"]] = relationship("Person", back_populates="addresses", lazy="selectin")
     organization: Mapped[Optional["Organization"]] = relationship("Organization", lazy="selectin")
 
 

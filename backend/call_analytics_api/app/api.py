@@ -8,7 +8,7 @@ from fastapi import Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.call_analytics_api.app import schemas, service
-from backend.call_analytics_api.app.schemas_db import CallListItemOut, CallDetailsOut
+from backend.call_analytics_api.app.schemas_db import CallListItemOut, CallDetailsOut, CallListResponse
 from backend.call_analytics_api.app.schemas_business import (
     PersonListItemOut,
     PersonDetailsOut,
@@ -87,7 +87,7 @@ def create_job_from_transcript(
 
 
 # New database endpoints
-@router.get("/calls", response_model=list[CallListItemOut])
+@router.get("/calls", response_model=CallListResponse)
 async def list_calls_endpoint(
     agent_id: str | None = Query(None, description="Filter by agent ID"),
     direction: str | None = Query(None, description="Filter by call direction"),

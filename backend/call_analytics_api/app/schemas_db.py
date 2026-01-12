@@ -112,6 +112,12 @@ class CallListItemOut(BaseModel):
         from_attributes = True
 
 
+class CallListResponse(BaseModel):
+    """Schema for paginated call list response."""
+    items: List[CallListItemOut]
+    total_count: int
+
+
 class CallDetailsOut(CallOut):
     """Schema for detailed call information."""
     dialogue_turns: List[DialogueTurnOut] = []
