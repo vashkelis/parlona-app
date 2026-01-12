@@ -24,6 +24,7 @@ from backend.call_analytics_api.app.schemas_db import (
 )
 from backend.call_analytics_api.app.schemas_business import (
     PersonSummaryOut,
+    PersonDetailsOut,
     TaskOut,
     OfferOut,
     ProductMentionOut,
@@ -31,6 +32,7 @@ from backend.call_analytics_api.app.schemas_business import (
 )
 from backend.call_analytics_api.app.repos.tasks import get_tasks_for_call
 from backend.call_analytics_api.app.repos.offers import get_offers_for_call
+from backend.call_analytics_api.app.repos.customers import get_customer_details
 
 
 async def list_calls(
@@ -135,22 +137,7 @@ async def get_call_details(db: AsyncSession, call_id: int) -> Optional[CallDetai
     # Build caller identity summary
     caller_identity = None
     if call.person:
-        primary_phone_result = await db.execute(
-            select(Identifier.identifier_value)
-            .where(
-                Identifier.person_id == call.person.id,
-                Identifier.identifier_type == "phone"
-            )
-            .limit(1)
-        )
-        primary_phone = primary_phone_result.scalar_one_or_none()
-        
-        display_label = call.person.full_name or primary_phone or f"Customer #{call.person.id}"
-        caller_identity = PersonSummaryOut(
-            id=call.person.id,
-            full_name=call.person.full_name,
-            display_label=display_label,
-        )
+        caller_identity = await get_customer_details(db, call.person.id)
     
     # Get tasks for this call
     tasks = await get_tasks_for_call(db, call_id)

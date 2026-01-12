@@ -118,14 +118,18 @@ class PostprocessWorker:
         else:
             return "unknown"
 
-    def _calculate_duration_sec(self, job: JobMetadata, call_record: Call) -> Optional[int]:
+    def _calculate_duration_sec(self, job: JobMetadata, call_record: Call, duration_seconds: Optional[int] = None) -> Optional[int]:
         """Calculate duration in seconds from job data."""
-        # Try to calculate from started_at and ended_at if available
+        # Priority 1: Use explicit duration_seconds from metadata if provided
+        if duration_seconds is not None:
+            return int(duration_seconds)
+        
+        # Priority 2: Calculate from started_at and ended_at if available
         if call_record.started_at and call_record.ended_at:
             duration = call_record.ended_at - call_record.started_at
             return int(duration.total_seconds())
         
-        # Fallback to max dialogue turn end time
+        # Priority 3: Fallback to max dialogue turn end time
         if job.stt_segments:
             max_end_time = 0
             for segment in job.stt_segments:
@@ -197,12 +201,17 @@ class PostprocessWorker:
                     customer_number = None
                     direction = None
                     provider_call_id = None
+                    duration_seconds = None
                     
                     if job.extra_meta:
                         agent_id_raw = job.extra_meta.get("agent_id")
                         customer_number = job.extra_meta.get("customer_number")
                         direction = job.extra_meta.get("direction")
                         provider_call_id = job.extra_meta.get("call_id")
+                        # Extract duration from metadata if available
+                        metadata = job.extra_meta.get("metadata", {})
+                        if isinstance(metadata, dict):
+                            duration_seconds = metadata.get("duration_seconds")
                     
                     # Create or update call record
                     if existing_call:
@@ -264,10 +273,19 @@ class PostprocessWorker:
                     if customer_number:
                         phones.append(customer_number)
                     if isinstance(identity_hints, dict):
+                        # Legacy structured hints (if present)
                         phones.extend(identity_hints.get("phones") or [])
                         emails.extend(identity_hints.get("emails") or [])
-                        person_names = identity_hints.get("person_names") or []
-                        company_names = identity_hints.get("company_names") or []
+                        person_names.extend(identity_hints.get("person_names") or [])
+                        company_names.extend(identity_hints.get("company_names") or [])
+
+                        # New NER-style buckets from the LLM:
+                        #   PERSON        → customer name(s)
+                        #   EMAIL         → customer email(s)
+                        #   ORGANIZATION  → company name(s)
+                        person_names.extend(identity_hints.get("PERSON") or [])
+                        emails.extend(identity_hints.get("EMAIL") or [])
+                        company_names.extend(identity_hints.get("ORGANIZATION") or [])
 
                     normalized_phones = [
                         self._normalize_phone(p) for p in phones if self._normalize_phone(p)
@@ -349,7 +367,7 @@ class PostprocessWorker:
                             call_record.headline = summary_payload["headline"]
                         call_record.sentiment_label = summary_payload.get("sentiment_label")
                         call_record.sentiment_score = summary_payload.get("sentiment_score")
-                        call_record.duration_sec = self._calculate_duration_sec(job, call_record)
+                        call_record.duration_sec = self._calculate_duration_sec(job, call_record, duration_seconds)
                         
                         # Store snapshot-style entities for backward compatibility
                         call_record.entities = job.entities

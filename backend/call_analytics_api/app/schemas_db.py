@@ -6,6 +6,7 @@ from pydantic import BaseModel, computed_field
 
 from backend.call_analytics_api.app.schemas_business import (
     PersonSummaryOut,
+    PersonDetailsOut,
     TaskOut,
     OfferOut,
     ProductMentionOut,
@@ -117,7 +118,7 @@ class CallDetailsOut(CallOut):
     summaries: List[CallSummaryOut] = []
     
     # Business objects linked to this call
-    caller_identity: Optional[PersonSummaryOut] = None
+    caller_identity: Optional[PersonDetailsOut] = None
     tasks: List[TaskOut] = []
     offers: List[OfferOut] = []
     product_mentions: List[ProductMentionOut] = []

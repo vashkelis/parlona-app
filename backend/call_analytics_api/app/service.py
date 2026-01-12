@@ -72,7 +72,24 @@ def create_transcript_job(transcript_input) -> JobMetadata:
             full_text += " "
         full_text += turn.text
     
+    # Extract duration from metadata if available
+    duration_seconds = getattr(transcript_input.metadata, 'duration_seconds', None)
+    
     # Create job metadata indicating bypassed STT
+    extra_meta = {
+        "call_id": transcript_input.call_id,
+        "direction": transcript_input.direction,
+        "agent_id": transcript_input.agent_id,
+        "customer_number": transcript_input.customer_number,
+        "participants": [p.dict() for p in transcript_input.participants],
+        "bypass_stt": True,
+        "source": "transcript_api"
+    }
+    
+    # Add duration if provided
+    if duration_seconds is not None:
+        extra_meta["duration_seconds"] = duration_seconds
+    
     job = JobMetadata(
         job_id=str(uuid4()),
         audio_path="",  # No audio file since we're bypassing STT
@@ -80,15 +97,7 @@ def create_transcript_job(transcript_input) -> JobMetadata:
         stt_text=full_text,
         stt_segments=stt_segments,
         stt_language=transcript_input.metadata.language,
-        extra_meta={
-            "call_id": transcript_input.call_id,
-            "direction": transcript_input.direction,
-            "agent_id": transcript_input.agent_id,
-            "customer_number": transcript_input.customer_number,
-            "participants": [p.dict() for p in transcript_input.participants],
-            "bypass_stt": True,
-            "source": "transcript_api"
-        }
+        extra_meta=extra_meta
     )
     
     # Save job to Redis
