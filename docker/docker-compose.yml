@@ -5,7 +5,9 @@
 services:
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD:-parlona_redis_secret} --protected-mode yes
+    env_file:
+      - .env
+    command: redis-server --requirepass ${REDIS_PASSWORD} --protected-mode yes
     ports:
       - "6379:6379"
     volumes:
@@ -16,10 +18,12 @@ services:
 
   db:
     image: postgres:16
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-parlonacore}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-parlonacore_db_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-parlonacore}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5433:5432"
     volumes:
@@ -28,23 +32,25 @@ services:
       - parlona_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-parlonacore} -d ${POSTGRES_DB:-parlonacore}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 30
 
   call_analytics_api:
     build:
-      context: ../..
+      context:
+    env_file:
+      - .env ../..
       dockerfile: oss/backend/call_analytics_api/Dockerfile
     environment:
       SERVICE_NAME: call_analytics_api
-      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
-      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
-      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       RUN_DB_MIGRATIONS: "1"
       STORAGE_DIR: /app/storage
-      CALL_API_KEY: ${CALL_API_KEY:-changeme_api_key}
+      CALL_API_KEY: ${CALL_API_KEY}
     ports:
       - "8080:8080"
     volumes:
@@ -63,11 +69,13 @@ services:
 
   stt_service:
     build:
-      context: ../..
+      context:
+    env_file:
+      - .env ../..
       dockerfile: oss/backend/stt_service/Dockerfile
     environment:
       SERVICE_NAME: stt_service
-      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       STORAGE_DIR: /app/storage
       STT_DIARIZATION_MODE: "stereo_channels"
       STT_STEREO_SPEAKER_MAPPING: "0:manager,1:customer"
@@ -100,11 +108,13 @@ services:
 
   summary_service:
     build:
-      context: ../..
+      context:
+    env_file:
+      - .env ../..
       dockerfile: oss/backend/summary_service/Dockerfile
     environment:
       SERVICE_NAME: summary_service
-      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
@@ -119,13 +129,15 @@ services:
 
   postprocess_service:
     build:
-      context: ../..
+      context:
+    env_file:
+      - .env ../..
       dockerfile: oss/backend/postprocess_service/Dockerfile
     environment:
       SERVICE_NAME: postprocess_service
-      REDIS_URL: redis://:${REDIS_PASSWORD:-parlona_redis_secret}@redis:6379/0
-      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
-      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER:-parlonacore}:${POSTGRES_PASSWORD:-parlonacore_db_secret}@db:5432/${POSTGRES_DB:-parlonacore}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       RUN_DB_MIGRATIONS: "1"
       STORAGE_DIR: /app/storage
     volumes:
