@@ -1,0 +1,120 @@
+# Parlona Core - CPU-Only Docker Compose
+# Use this on machines WITHOUT GPU - STT should run on separate GPU machine
+# Usage: docker compose -f docker-compose.cpu.yml up -d
+
+services:
+  call_analytics_api:
+    image: parlona/voicecore-api:1.2.0
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: call_analytics_api
+      REDIS_URL: redis://:${REDIS_PASSWORD}@${REDIS_HOST:-redis}:6379/0
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      RUN_DB_MIGRATIONS: "1"
+      STORAGE_DIR: /app/storage
+      CALL_API_KEY: ${CALL_API_KEY}
+    ports:
+      - "8080:8080"
+    volumes:
+      - audio_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+  # NOTE: STT service disabled - run on separate GPU machine
+  # Use: ./docker-stt-gpu.sh <redis-host> <redis-password>
+
+  summary_service:
+    image: parlona/voicecore-summary:1.2.0
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: summary_service
+      REDIS_URL: redis://:${REDIS_PASSWORD}@${REDIS_HOST:-redis}:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # For remote vLLM:
+      # LLM_BACKEND: vllm
+      # VLLM_API_BASE: http://vllm-host:8000/v1
+    volumes:
+      - audio_storage:/app/storage
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+  postprocess_service:
+    image: parlona/voicecore-postprocess:1.2.0
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: postprocess_service
+      REDIS_URL: redis://:${REDIS_PASSWORD}@${REDIS_HOST:-redis}:6379/0
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      POSTGRES_DSN_PSYCOPG: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      RUN_DB_MIGRATIONS: "1"
+      STORAGE_DIR: /app/storage
+    volumes:
+      - audio_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - parlona_network
+    restart: unless-stopped
+
+  # Optional: Redis (if not using external)
+  # redis:
+  #   image: redis:7-alpine
+  #   command: redis-server --requirepass ${REDIS_PASSWORD} --protected-mode yes
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - parlona_network
+  #   restart: unless-stopped
+
+  # Optional: PostgreSQL (if not using external)
+  # db:
+  #   image: postgres:16
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - parlona_network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 30
+
+volumes:
+  audio_storage:
+  # redis_data:
+  # postgres_data:
+
+networks:
+  parlona_network:
+    driver: bridge
